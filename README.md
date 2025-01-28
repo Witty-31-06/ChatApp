@@ -1,2 +1,2 @@
 # ChatApp
-A ChatApp made from scratch in Rust
+A ChatApp made from scratch in Python
