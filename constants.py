@@ -1,0 +1,12 @@
+LOGIN = "login"
+AUTH = "auth"
+SIGNUP = "signup"
+QUIT = "quit"
+CHAT = "chat"
+OK = "ok"
+ERR = "err"
+USERS = "users"
+CHAT_REQUEST = "chat_req"
+CHAT_OK = "chat_ok"
+REQ_ACC = 'req_acc'
+REQ_DEN = 'req_den'
