@@ -80,16 +80,6 @@ async def authenticate_user(reader, writer):
     else:
         global ALL_USERS
         ALL_USERS[name] = (reader, writer)
-
-        user_list = list(ALL_USERS.keys())
-
-        data = {"type": USERS, 'users':user_list}
-        msg = json.dumps(data)
-        await broadcast_message(f'{msg}\n')
-
-        welcome = f'Welcome {name}. Send QUIT to disconnect.\n'
-        writer.write(welcome.encode())
-        await writer.drain()
         return name, True
  
 
@@ -98,9 +88,21 @@ async def disconnect_user(name, writer):
     await writer.wait_closed()
     global ALL_USERS
     del ALL_USERS[name]
-
-    await broadcast_message(f'{name} has disconnected\n')
  
+async def send_one_one_message(writer, type, message, fro, to):
+    msg = {
+        'type':type,
+        'message': message,
+        'from': fro,
+        'to': to
+    }
+    msg_str = json.dumps(msg)
+    msg_str += '\n'
+    msg_bytes = msg_str.encode()
+    print(f'Sending: {msg_str}')
+    writer.write(msg_bytes)
+    await writer.drain()
+
 
 async def handle_chat_client(reader, writer):
     print('Client connecting...')
@@ -112,12 +114,32 @@ async def handle_chat_client(reader, writer):
             await authenticate_user(reader, writer)
             counter -= 1
         return
-
+    recipient = None
+    group = None
     try:
         while True:
             msg = await reader.readline()
             data = msg.decode().strip()
-            if data['type'] == CHAT_REQUEST:
+            data = json.loads(data)
+            print(name, data)
+            
+            if data['type'] == REQ_ACC:
+                recipient = data['to']
+                await send_one_one_message(ALL_USERS[recipient][1], REQ_ACC, "Request accepted", name, recipient)
+            elif data['type'] == REQ_DEN:
+                pass
+            elif data['type'] == CHAT_REQUEST:
+                recipient = data['username']
+                if recipient not in ALL_USERS:
+                    await send_one_one_message(writer, INVALID_USER, f"User {recipient} not found", name, recipient)
+                    recipient = None
+                    continue
+                else:
+                    await send_one_one_message(ALL_USERS[recipient][1], CHAT_REQUEST,f"Chat request from {name}", name, recipient)
+            elif data['type'] == CHAT:
+                await send_one_one_message(ALL_USERS[recipient][1], CHAT, data['message'], name, recipient)
+            elif data['type'] == DISCONNECT:
+                pass
                 
             
     finally:
