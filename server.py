@@ -9,13 +9,6 @@ from constants import *
 
 ph = PasswordHasher()
 
-async def broadcast_message(message):
-    print(f'Broadcast: {message.strip()}')
-    msg_bytes = message.encode()
-    global ALL_USERS
-    for _, (_, writer) in ALL_USERS.items():
-        writer.write(msg_bytes)
-        await writer.drain()
 
 async def send_message(reader, writer, message):
     writer.write(message.encode())
@@ -103,11 +96,28 @@ async def send_one_one_message(writer, type, message, fro, to):
     writer.write(msg_bytes)
     await writer.drain()
 
+async def multicast_message(writers, type, message, fro, tos, grp_id):
+    msg = {
+    'type':type,
+    'message': message,
+    'from': fro,
+    'group_id': grp_id
+    }
+    for i in range(len(writers)):
+        writer = writers[i]
+        msg['to'] = tos[i]
+        msg_str = json.dumps(msg)
+        msg_str += '\n'
+        msg_bytes = msg_str.encode()
+        print(f'Sending: {msg_str}')
+        writer.write(msg_bytes)
+        await writer.drain()
+        
 
 async def handle_chat_client(reader, writer):
     print('Client connecting...')
     name, status = await authenticate_user(reader, writer)
-    print(name, status)
+    # print(name, status)
     counter = 2
     if not status:
         while counter > 0:
@@ -116,30 +126,66 @@ async def handle_chat_client(reader, writer):
         return
     recipient = None
     group = None
+    # print(ALL_USERS)
     try:
         while True:
-            msg = await reader.readline()
-            data = msg.decode().strip()
-            data = json.loads(data)
-            print(name, data)
-            
-            if data['type'] == REQ_ACC:
-                recipient = data['to']
-                await send_one_one_message(ALL_USERS[recipient][1], REQ_ACC, "Request accepted", name, recipient)
-            elif data['type'] == REQ_DEN:
-                pass
-            elif data['type'] == CHAT_REQUEST:
-                recipient = data['username']
-                if recipient not in ALL_USERS:
-                    await send_one_one_message(writer, INVALID_USER, f"User {recipient} not found", name, recipient)
-                    recipient = None
-                    continue
-                else:
-                    await send_one_one_message(ALL_USERS[recipient][1], CHAT_REQUEST,f"Chat request from {name}", name, recipient)
-            elif data['type'] == CHAT:
-                await send_one_one_message(ALL_USERS[recipient][1], CHAT, data['message'], name, recipient)
-            elif data['type'] == DISCONNECT:
-                pass
+            try:
+                msg = await reader.readline()
+                data = msg.decode().strip()
+                data = json.loads(data)
+                print(name, data)
+                
+                if data['type'] == REQ_ACC:
+                    recipient = data['to']
+                    await send_one_one_message(ALL_USERS[recipient][1], REQ_ACC, "Request accepted", name, recipient)
+                elif data['type'] == REQ_DEN:
+                    pass
+                elif data['type'] == CHAT_REQUEST:
+                    recipient = data['username']
+                    if recipient not in ALL_USERS:
+                        await send_one_one_message(writer, INVALID_USER, f"User {recipient} not found", name, recipient)
+                        recipient = None
+                        continue
+                    else:
+                        await send_one_one_message(ALL_USERS[recipient][1], CHAT_REQUEST,f"Chat request from {name}", name, recipient)
+                
+                elif data['type'] == GROUP_REQ:
+                    group = data['group_id']
+                    ALL_GROUPS[group] = [name]
+                    tos = data['users']
+                    group_members = []
+                    print('tos', tos)
+                    print(ALL_USERS.keys())
+                    for to in tos:
+                        # if to not in ALL_USERS:
+                        #     print(to, ALL_USERS.keys())
+                        #     await send_one_one_message(writer, INVALID_USER, f"User {to} not found", name, to)
+                            
+                        # else:
+                        group_members.append(to)
+                        await multicast_message([ALL_USERS[to][1] for to in group_members], 
+                                                    GROUP_REQ, f"Group request from {name}", name, group_members, group)
+                
+                elif data['type'] == GROUP_REQ_ACC:
+                    group_id = data['group_id']
+                    group = group_id
+                    ALL_GROUPS[group_id].append(name)
+                    group_members = ALL_GROUPS[group_id]
+                    await multicast_message([ALL_USERS[to][1] for to in group_members],
+                                             GROUP_REQ_ACC, f"Group request accepted by {name}", name, group_members, group_id)
+                elif data['type'] == GROUP_CHAT:
+                    group_id = data['group_id']
+                    group = group_id
+                    group_members = ALL_GROUPS[group_id]
+                    await multicast_message([ALL_USERS[to][1] for to in group_members],
+                                             GROUP_CHAT, f"{data['message']}", name, group_members, group_id)
+                elif data['type'] == CHAT:
+                    await send_one_one_message(ALL_USERS[recipient][1], CHAT, data['message'], name, recipient)
+                elif data['type'] == DISCONNECT:
+                    pass
+            except json.decoder.JSONDecodeError:
+                print(name, "diconnected")
+                break
                 
             
     finally:
@@ -156,5 +202,5 @@ async def main():
             print("Client disconnected")  
 
 ALL_USERS = {}
-
+ALL_GROUPS = {} # groupname: members
 asyncio.run(main())
