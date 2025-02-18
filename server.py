@@ -113,7 +113,39 @@ async def multicast_message(writers, type, message, fro, tos, grp_id):
         writer.write(msg_bytes)
         await writer.drain()
         
-
+async def send_file_pvt(writer, file, filename, fro, to):
+    msg = {
+        'type': FILE_RECV_PVT,
+        'file': file,
+        'file_name': filename,
+        'from': fro,
+        'to': to
+    }
+    msg_str = json.dumps(msg)
+    msg_str += '\n'
+    msg_bytes = msg_str.encode()
+    # print(f'Sending: {msg_str}')
+    writer.write(msg_bytes)
+    await writer.drain()
+    pass
+async def send_file_grp(writers, file, filename, fro, tos, grp_id):
+    msg = {
+        'type': FILE_RECV_GRP,
+        'file': file,
+        'file_name': filename,
+        'from': fro,
+        'group_id': grp_id
+    }
+    for i in range(len(writers)):
+        writer = writers[i]
+        msg['to'] = tos[i]
+        msg_str = json.dumps(msg)
+        msg_str += '\n'
+        msg_bytes = msg_str.encode()
+        print(f'Sending: {msg_str}')
+        writer.write(msg_bytes)
+        await writer.drain()
+    
 async def handle_chat_client(reader, writer):
     print('Client connecting...')
     name, status = await authenticate_user(reader, writer)
@@ -157,15 +189,25 @@ async def handle_chat_client(reader, writer):
                     print('tos', tos)
                     print(ALL_USERS.keys())
                     for to in tos:
-                        # if to not in ALL_USERS:
-                        #     print(to, ALL_USERS.keys())
-                        #     await send_one_one_message(writer, INVALID_USER, f"User {to} not found", name, to)
+                        if to not in ALL_USERS:
+                            print(to, ALL_USERS.keys())
+                            await send_one_one_message(writer, INVALID_USER, f"User {to} not found", name, to)
                             
-                        # else:
-                        group_members.append(to)
-                        await multicast_message([ALL_USERS[to][1] for to in group_members], 
+                        else:
+                            group_members.append(to)
+                            await multicast_message([ALL_USERS[to][1] for to in group_members], 
                                                     GROUP_REQ, f"Group request from {name}", name, group_members, group)
                 
+                elif data['type'] == FILE_SEND_GRP:
+                    file_data = data['file']
+                    file_name = data['file_name']
+                    group_members = filter(lambda x: x != name, ALL_GROUPS[group])
+                    await send_file_grp([ALL_USERS[to][1] for to in group_members], file_data, file_name, name, group_members, group)
+                elif data['type'] == FILE_SEND_PVT:
+                    file_data = data['file']
+                    file_name = data['file_name']
+                    to = recipient
+                    await send_file_pvt(ALL_USERS[to][1], file_data, file_name, name, to)
                 elif data['type'] == GROUP_REQ_ACC:
                     group_id = data['group_id']
                     group = group_id
